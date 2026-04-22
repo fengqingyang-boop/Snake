@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>贪吃蛇游戏</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background-color: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #app {
+            text-align: center;
+        }
+        h1 {
+            color: #00ff88;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #00ff88;
+        }
+        .game-container {
+            position: relative;
+            display: inline-block;
+            border: 3px solid #00ff88;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+        #gameCanvas {
+            background-color: #16213e;
+            border-radius: 7px;
+        }
+        .game-info {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #0f3460;
+            border-radius: 10px;
+            border: 2px solid #00ff88;
+        }
+        .info-item {
+            text-align: center;
+        }
+        .info-label {
+            color: #888;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+        .info-value {
+            color: #00ff88;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .controls {
+            margin-top: 20px;
+            color: #888;
+            font-size: 14px;
+        }
+        .controls span {
+            color: #00ff88;
+            font-weight: bold;
+        }
+        .game-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: 7px;
+        }
+        .overlay-title {
+            color: #ff6b6b;
+            font-size: 36px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #ff6b6b;
+        }
+        .overlay-text {
+            color: #fff;
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        .restart-btn {
+            background-color: #00ff88;
+            color: #1a1a2e;
+            border: none;
+            padding: 15px 40px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 20px;
+        }
+        .restart-btn:hover {
+            background-color: #00cc6a;
+            transform: scale(1.05);
+        }
+        .red-snake-hint {
+            color: #ff4444;
+            font-size: 16px;
+            margin-top: 15px;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <h1>{{ gameTitle }}</h1>
+        <div class="game-container">
+            <canvas id="gameCanvas" :width="canvasWidth" :height="canvasHeight"></canvas>
+            <div class="game-overlay" v-if="gameState !== 'playing'">
+                <div class="overlay-title" v-if="gameState === 'gameover'">游戏结束</div>
+                <div class="overlay-title" v-else-if="gameState === 'paused'">暂停</div>
+                <div class="overlay-title" v-else-if="gameState === 'start'">贪吃蛇</div>
+                <div class="overlay-text" v-if="gameState === 'redSnake'">
+                    控制<span style="color:#ff4444">红色蛇</span>吃掉<span style="color:#4444ff">蓝色尸体</span>！
+                </div>
+                <div class="red-snake-hint" v-if="gameState === 'redSnake'">
+                    按 W A S D 控制方向
+                </div>
+                <div class="overlay-text" v-if="gameState === 'gameover'">
+                    最终分数: {{ score }}
+                </div>
+                <button class="restart-btn" v-if="gameState === 'start' || gameState === 'gameover' || gameState === 'paused'" 
+                        @click="startGame">
+                    {{ gameState === 'paused' ? '继续游戏' : '开始游戏' }}
+                </button>
+            </div>
+        </div>
+        
+        <div class="game-info">
+            <div class="info-item">
+                <div class="info-label">分数</div>
+                <div class="info-value">{{ score }}</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">蛇的直径</div>
+                <div class="info-value">{{ snakeDiameter }}</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">速度</div>
+                <div class="info-value">{{ currentSpeed.toFixed(1) }}</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">已吃苹果</div>
+                <div class="info-value">{{ applesEaten }}</div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            按 <span>W</span> <span>A</span> <span>S</span> <span>D</span> 控制方向 | 
+            按 <span>空格</span> 暂停/继续
+        </div>
+    </div>
+
+    <script>
+        const { createApp, onMounted, onUnmounted, ref, computed } = Vue;
+
+        createApp({
+            setup() {
+                const canvasWidth = 800;
+                const canvasHeight = 600;
+                const initialSnakeLength = 10;
+                const initialCellSize = 20;
+                const initialSnakeDiameter = 2;
+                const maxSnakeDiameter = 10;
+                const initialSpeed = 8;
+                const minSpeed = 4;
+                const speedDecrement = 0.2;
+                const maxApples = 5;
+                const growEvery = 3;
+
+                let canvas = null;
+                let ctx = null;
+                let gameLoop = null;
+
+                const gameTitle = ref('贪吃蛇游戏');
+                const gameState = ref('start');
+                const score = ref(0);
+                const applesEaten = ref(0);
+                
+                const snakeDiameter = ref(initialSnakeDiameter);
+                const currentSpeed = ref(initialSpeed);
+                const cellSize = ref(initialCellSize);
+                
+                const snake = ref([]);
+                const direction = ref({ x: 1, y: 0 });
+                const nextDirection = ref({ x: 1, y: 0 });
+                
+                const redSnake = ref([]);
+                const redSnakeDirection = ref({ x: -1, y: 0 });
+                const redSnakeNextDirection = ref({ x: -1, y: 0 });
+                
+                const apples = ref([]);
+                const obstacles = ref([]);
+                const blueCorpse = ref([]);
+                
+                const savedSnakeState = ref({
+                    snake: [],
+                    snakeDiameter: initialSnakeDiameter,
+                    currentSpeed: initialSpeed,
+                    applesEaten: 0,
+                    score: 0,
+                    obstacles: []
+                });
+
+                const actualCellSize = computed(() => {
+                    return Math.floor(initialCellSize * (snakeDiameter.value / initialSnakeDiameter));
+                });
+
+                function initGame() {
+                    canvas = document.getElementById('gameCanvas');
+                    ctx = canvas.getContext('2d');
+                }
+
+                function resetGame() {
+                    snake.value = [];
+                    direction.value = { x: 1, y: 0 };
+                    nextDirection.value = { x: 1, y: 0 };
+                    snakeDiameter.value = initialSnakeDiameter;
+                    currentSpeed.value = initialSpeed;
+                    applesEaten.value = 0;
+                    score.value = 0;
+                    apples.value = [];
+                    obstacles.value = [];
+                    blueCorpse.value = [];
+                    redSnake.value = [];
+                    
+                    const startX = Math.floor(canvasWidth / 2 / initialCellSize) * initialCellSize;
+                    const startY = Math.floor(canvasHeight / 2 / initialCellSize) * initialCellSize;
+                    
+                    for (let i = 0; i < initialSnakeLength; i++) {
+                        snake.value.push({
+                            x: startX - i * initialCellSize,
+                            y: startY
+                        });
+                    }
+                    
+                    generateApples();
+                }
+
+                function generateApples() {
+                    while (apples.value.length < maxApples) {
+                        generateApple();
+                    }
+                }
+
+                function generateApple() {
+                    let attempts = 0;
+                    const maxAttempts = 100;
+                    
+                    while (attempts < maxAttempts) {
+                        const gridX = Math.floor(Math.random() * (canvasWidth / initialCellSize));
+                        const gridY = Math.floor(Math.random() * (canvasHeight / initialCellSize));
+                        const x = gridX * initialCellSize;
+                        const y = gridY * initialCellSize;
+                        
+                        let collision = false;
+                        
+                        for (const segment of snake.value) {
+                            if (checkCollision({ x, y }, segment, actualCellSize.value, initialCellSize)) {
+                                collision = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!collision) {
+                            for (const apple of apples.value) {
+                                if (apple.x === x && apple.y === y) {
+                                    collision = true;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (!collision) {
+                            for (const obstacle of obstacles.value) {
+                                if (checkCollision({ x, y }, obstacle, actualCellSize.value, initialCellSize)) {
+                                    collision = true;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (!collision) {
+                            for (const segment of blueCorpse.value) {
+                                if (checkCollision({ x, y }, segment, initialCellSize, initialCellSize)) {
+                                    collision = true;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (!collision) {
+                            apples.value.push({ x, y });
+                            return;
+                        }
+                        
+                        attempts++;
+                    }
+                }
+
+                function checkCollision(rect1, rect2, size1, size2) {
+                    const r1 = {
+                        left: rect1.x,
+                        right: rect1.x + size1,
+                        top: rect1.y,
+                        bottom: rect1.y + size1
+                    };
+                    const r2 = {
+                        left: rect2.x,
+                        right: rect2.x + size2,
+                        top: rect2.y,
+                        bottom: rect2.y + size2
+                    };
+                    
+                    return !(r1.right <= r2.left || r1.left >= r2.right || 
+                            r1.bottom <= r2.top || r1.top >= r2.bottom);
+                }
+
+                function moveSnake() {
+                    direction.value = { ...nextDirection.value };
+                    
+                    const head = snake.value[0];
+                    const newHead = {
+                        x: head.x + direction.value.x * initialCellSize,
+                        y: head.y + direction.value.y * initialCellSize
+                    };
+                    
+                    if (newHead.x < 0) newHead.x = canvasWidth - actualCellSize.value;
+                    if (newHead.x >= canvasWidth) newHead.x = 0;
+                    if (newHead.y < 0) newHead.y = canvasHeight - actualCellSize.value;
+                    if (newHead.y >= canvasHeight) newHead.y = 0;
+                    
+                    for (let i = 1; i < snake.value.length; i++) {
+                        if (checkCollision(newHead, snake.value[i], actualCellSize.value, actualCellSize.value)) {
+                            handleSelfCollision();
+                            return;
+                        }
+                    }
+                    
+                    for (const obstacle of obstacles.value) {
+                        if (checkCollision(newHead, obstacle, actualCellSize.value, initialCellSize)) {
+                            handleObstacleCollision();
+                            return;
+                        }
+                    }
+                    
+                    snake.value.unshift(newHead);
+                    
+                    let ateApple = false;
+                    for (let i = apples.value.length - 1; i >= 0; i--) {
+                        if (checkCollision(newHead, apples.value[i], actualCellSize.value, initialCellSize)) {
+                            apples.value.splice(i, 1);
+                            ateApple = true;
+                            applesEaten.value++;
+                            score.value += 10;
+                            
+                            if (currentSpeed.value > minSpeed) {
+                                currentSpeed.value = Math.max(minSpeed, currentSpeed.value - speedDecrement);
+                            }
+                            
+                            if (applesEaten.value % growEvery === 0) {
+                                snakeDiameter.value = Math.min(maxSnakeDiameter, snakeDiameter.value + 1);
+                            }
+                            
+                            generateApple();
+                        }
+                    }
+                    
+                    if (!ateApple) {
+                        snake.value.pop();
+                    }
+                }
+
+                function handleSelfCollision() {
+                    savedSnakeState.value = {
+                        snake: [...snake.value],
+                        snakeDiameter: snakeDiameter.value,
+                        currentSpeed: currentSpeed.value,
+                        applesEaten: applesEaten.value,
+                        score: score.value,
+                        obstacles: [...obstacles.value]
+                    };
+                    
+                    const halfLength = Math.floor(snake.value.length / 2);
+                    for (let i = halfLength; i < snake.value.length; i++) {
+                        obstacles.value.push({ ...snake.value[i] });
+                    }
+                    
+                    snakeDiameter.value = initialSnakeDiameter;
+                    currentSpeed.value = initialSpeed;
+                    
+                    const newLength = Math.max(initialSnakeLength, halfLength);
+                    const head = snake.value[0];
+                    const newSnake = [];
+                    
+                    for (let i = 0; i < newLength; i++) {
+                        newSnake.push({
+                            x: head.x - i * initialCellSize * direction.value.x,
+                            y: head.y - i * initialCellSize * direction.value.y
+                        });
+                    }
+                    
+                    snake.value = newSnake;
+                }
+
+                function handleObstacleCollision() {
+                    blueCorpse.value = [...snake.value];
+                    
+                    const redStartX = canvasWidth - initialCellSize;
+                    const redStartY = 0;
+                    
+                    redSnake.value = [];
+                    for (let i = 0; i < 5; i++) {
+                        redSnake.value.push({
+                            x: redStartX + i * initialCellSize,
+                            y: redStartY
+                        });
+                    }
+                    
+                    redSnakeDirection.value = { x: -1, y: 0 };
+                    redSnakeNextDirection.value = { x: -1, y: 0 };
+                    
+                    gameState.value = 'redSnake';
+                }
+
+                function moveRedSnake() {
+                    redSnakeDirection.value = { ...redSnakeNextDirection.value };
+                    
+                    const head = redSnake.value[0];
+                    const newHead = {
+                        x: head.x + redSnakeDirection.value.x * initialCellSize,
+                        y: head.y + redSnakeDirection.value.y * initialCellSize
+                    };
+                    
+                    if (newHead.x < 0 || newHead.x >= canvasWidth || 
+                        newHead.y < 0 || newHead.y >= canvasHeight) {
+                        gameState.value = 'gameover';
+                        return;
+                    }
+                    
+                    for (let i = 1; i < redSnake.value.length; i++) {
+                        if (newHead.x === redSnake.value[i].x && newHead.y === redSnake.value[i].y) {
+                            gameState.value = 'gameover';
+                            return;
+                        }
+                    }
+                    
+                    for (const segment of blueCorpse.value) {
+                        if (checkCollision(newHead, segment, initialCellSize, initialCellSize)) {
+                            restoreGame();
+                            return;
+                        }
+                    }
+                    
+                    redSnake.value.unshift(newHead);
+                    redSnake.value.pop();
+                }
+
+                function restoreGame() {
+                    snake.value = savedSnakeState.value.snake;
+                    snakeDiameter.value = savedSnakeState.value.snakeDiameter;
+                    currentSpeed.value = savedSnakeState.value.currentSpeed;
+                    applesEaten.value = savedSnakeState.value.applesEaten;
+                    score.value = savedSnakeState.value.score;
+                    obstacles.value = savedSnakeState.value.obstacles;
+                    direction.value = { x: 1, y: 0 };
+                    nextDirection.value = { x: 1, y: 0 };
+                    blueCorpse.value = [];
+                    redSnake.value = [];
+                    gameState.value = 'playing';
+                }
+
+                function draw() {
+                    ctx.fillStyle = '#16213e';
+                    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+                    
+                    for (const obstacle of obstacles.value) {
+                        ctx.fillStyle = '#555';
+                        ctx.fillRect(obstacle.x, obstacle.y, initialCellSize, initialCellSize);
+                        ctx.strokeStyle = '#777';
+                        ctx.strokeRect(obstacle.x, obstacle.y, initialCellSize, initialCellSize);
+                    }
+                    
+                    for (const segment of blueCorpse.value) {
+                        ctx.fillStyle = '#4444ff';
+                        ctx.fillRect(segment.x, segment.y, initialCellSize, initialCellSize);
+                        ctx.strokeStyle = '#2222cc';
+                        ctx.strokeRect(segment.x, segment.y, initialCellSize, initialCellSize);
+                    }
+                    
+                    for (const apple of apples.value) {
+                        ctx.fillStyle = '#ff6b6b';
+                        ctx.beginPath();
+                        ctx.arc(
+                            apple.x + initialCellSize / 2,
+                            apple.y + initialCellSize / 2,
+                            initialCellSize / 2 - 2,
+                            0,
+                            Math.PI * 2
+                        );
+                        ctx.fill();
+                        
+                        ctx.strokeStyle = '#ff4444';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                        ctx.lineWidth = 1;
+                    }
+                    
+                    for (let i = 0; i < snake.value.length; i++) {
+                        const segment = snake.value[i];
+                        const size = actualCellSize.value;
+                        
+                        if (i === 0) {
+                            ctx.fillStyle = '#00ff88';
+                        } else {
+                            const alpha = 1 - (i / snake.value.length) * 0.5;
+                            ctx.fillStyle = `rgba(0, 255, 136, ${alpha})`;
+                        }
+                        
+                        ctx.fillRect(segment.x, segment.y, size, size);
+                        ctx.strokeStyle = '#00cc6a';
+                        ctx.strokeRect(segment.x, segment.y, size, size);
+                    }
+                    
+                    for (let i = 0; i < redSnake.value.length; i++) {
+                        const segment = redSnake.value[i];
+                        
+                        if (i === 0) {
+                            ctx.fillStyle = '#ff4444';
+                        } else {
+                            const alpha = 1 - (i / redSnake.value.length) * 0.5;
+                            ctx.fillStyle = `rgba(255, 68, 68, ${alpha})`;
+                        }
+                        
+                        ctx.fillRect(segment.x, segment.y, initialCellSize, initialCellSize);
+                        ctx.strokeStyle = '#cc2222';
+                        ctx.strokeRect(segment.x, segment.y, initialCellSize, initialCellSize);
+                    }
+                }
+
+                function gameLoopFunction() {
+                    if (gameState.value === 'playing') {
+                        moveSnake();
+                    } else if (gameState.value === 'redSnake') {
+                        moveRedSnake();
+                    }
+                    
+                    draw();
+                    
+                    if (gameState.value === 'playing' || gameState.value === 'redSnake') {
+                        const delay = 1000 / currentSpeed.value;
+                        gameLoop = setTimeout(gameLoopFunction, delay);
+                    }
+                }
+
+                function startGame() {
+                    if (gameState.value === 'paused') {
+                        gameState.value = 'playing';
+                        gameLoopFunction();
+                    } else {
+                        resetGame();
+                        gameState.value = 'playing';
+                        gameLoopFunction();
+                    }
+                }
+
+                function handleKeyDown(event) {
+                    const key = event.key.toLowerCase();
+                    
+                    if (gameState.value === 'playing') {
+                        switch (key) {
+                            case 'w':
+                                if (direction.value.y === 0) {
+                                    nextDirection.value = { x: 0, y: -1 };
+                                }
+                                break;
+                            case 's':
+                                if (direction.value.y === 0) {
+                                    nextDirection.value = { x: 0, y: 1 };
+                                }
+                                break;
+                            case 'a':
+                                if (direction.value.x === 0) {
+                                    nextDirection.value = { x: -1, y: 0 };
+                                }
+                                break;
+                            case 'd':
+                                if (direction.value.x === 0) {
+                                    nextDirection.value = { x: 1, y: 0 };
+                                }
+                                break;
+                            case ' ':
+                                event.preventDefault();
+                                gameState.value = 'paused';
+                                if (gameLoop) {
+                                    clearTimeout(gameLoop);
+                                }
+                                break;
+                        }
+                    } else if (gameState.value === 'redSnake') {
+                        switch (key) {
+                            case 'w':
+                                if (redSnakeDirection.value.y === 0) {
+                                    redSnakeNextDirection.value = { x: 0, y: -1 };
+                                }
+                                break;
+                            case 's':
+                                if (redSnakeDirection.value.y === 0) {
+                                    redSnakeNextDirection.value = { x: 0, y: 1 };
+                                }
+                                break;
+                            case 'a':
+                                if (redSnakeDirection.value.x === 0) {
+                                    redSnakeNextDirection.value = { x: -1, y: 0 };
+                                }
+                                break;
+                            case 'd':
+                                if (redSnakeDirection.value.x === 0) {
+                                    redSnakeNextDirection.value = { x: 1, y: 0 };
+                                }
+                                break;
+                        }
+                    } else if (gameState.value === 'paused') {
+                        if (key === ' ') {
+                            event.preventDefault();
+                            startGame();
+                        }
+                    } else if (gameState.value === 'start' || gameState.value === 'gameover') {
+                        if (key === ' ' || key === 'enter') {
+                            event.preventDefault();
+                            startGame();
+                        }
+                    }
+                }
+
+                onMounted(() => {
+                    initGame();
+                    window.addEventListener('keydown', handleKeyDown);
+                    draw();
+                });
+
+                onUnmounted(() => {
+                    window.removeEventListener('keydown', handleKeyDown);
+                    if (gameLoop) {
+                        clearTimeout(gameLoop);
+                    }
+                });
+
+                return {
+                    gameTitle,
+                    gameState,
+                    score,
+                    snakeDiameter,
+                    currentSpeed,
+                    applesEaten,
+                    canvasWidth,
+                    canvasHeight,
+                    startGame
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
