@@ -317,7 +317,8 @@
                         
                         if (!collision) {
                             for (const obstacle of obstacles.value) {
-                                if (checkCollision({ x, y }, obstacle, actualCellSize.value, initialCellSize)) {
+                                const obstacleSize = obstacle.size || initialCellSize;
+                                if (checkCollision({ x, y }, obstacle, initialCellSize, obstacleSize)) {
                                     collision = true;
                                     break;
                                 }
@@ -374,8 +375,16 @@
                     if (newHead.y < 0) newHead.y = canvasHeight - actualCellSize.value;
                     if (newHead.y >= canvasHeight) newHead.y = 0;
                     
+                    for (let i = 1; i < snake.value.length; i++) {
+                        if (checkCollision(newHead, snake.value[i], actualCellSize.value, actualCellSize.value)) {
+                            handleSelfCollision();
+                            return;
+                        }
+                    }
+                    
                     for (const obstacle of obstacles.value) {
-                        if (checkCollision(newHead, obstacle, actualCellSize.value, initialCellSize)) {
+                        const obstacleSize = obstacle.size || initialCellSize;
+                        if (checkCollision(newHead, obstacle, actualCellSize.value, obstacleSize)) {
                             handleObstacleCollision();
                             return;
                         }
@@ -406,6 +415,36 @@
                     if (!ateApple) {
                         snake.value.pop();
                     }
+                }
+
+                function handleSelfCollision() {
+                    const currentSnakeDiameter = snakeDiameter.value;
+                    const halfLength = Math.floor(snake.value.length / 2);
+                    
+                    for (let i = halfLength; i < snake.value.length; i++) {
+                        const segment = snake.value[i];
+                        obstacles.value.push({
+                            x: segment.x,
+                            y: segment.y,
+                            size: Math.floor(initialCellSize * (currentSnakeDiameter / initialSnakeDiameter))
+                        });
+                    }
+                    
+                    snakeDiameter.value = initialSnakeDiameter;
+                    currentSpeed.value = initialSpeed;
+                    
+                    const newLength = Math.max(initialSnakeLength, halfLength);
+                    const head = snake.value[0];
+                    const newSnake = [];
+                    
+                    for (let i = 0; i < newLength; i++) {
+                        newSnake.push({
+                            x: head.x - i * initialCellSize * direction.value.x,
+                            y: head.y - i * initialCellSize * direction.value.y
+                        });
+                    }
+                    
+                    snake.value = newSnake;
                 }
 
                 function handleObstacleCollision() {
@@ -537,10 +576,11 @@
                     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
                     
                     for (const obstacle of obstacles.value) {
+                        const obstacleSize = obstacle.size || initialCellSize;
                         ctx.fillStyle = '#555';
-                        ctx.fillRect(obstacle.x, obstacle.y, initialCellSize, initialCellSize);
+                        ctx.fillRect(obstacle.x, obstacle.y, obstacleSize, obstacleSize);
                         ctx.strokeStyle = '#777';
-                        ctx.strokeRect(obstacle.x, obstacle.y, initialCellSize, initialCellSize);
+                        ctx.strokeRect(obstacle.x, obstacle.y, obstacleSize, obstacleSize);
                     }
                     
                     for (const segment of blueCorpse.value) {
