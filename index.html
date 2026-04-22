@@ -146,17 +146,6 @@
                     {{ gameState === 'paused' ? '继续游戏' : '开始游戏' }}
                 </button>
             </div>
-            <div class="game-overlay" v-if="gameState === 'redSnake'" style="pointer-events: none; background-color: rgba(0, 0, 0, 0.5);">
-                <div class="overlay-text" style="color: #ff4444; font-size: 28px; text-shadow: 0 0 10px #ff4444;">
-                    剩余时间: <span :class="{ 'warning': redSnakeTimeLeft <= 10 }">{{ redSnakeTimeLeft }}</span> 秒
-                </div>
-                <div class="overlay-text" style="color: #fff; font-size: 20px;">
-                    控制<span style="color:#ff4444">红色蛇</span>吃掉<span style="color:#4444ff">蓝色尸体</span>！
-                </div>
-                <div class="red-snake-hint">
-                    按 W A S D 控制方向 | 不能吃苹果！
-                </div>
-            </div>
         </div>
         
         <div class="game-info">
@@ -385,13 +374,6 @@
                     if (newHead.y < 0) newHead.y = canvasHeight - actualCellSize.value;
                     if (newHead.y >= canvasHeight) newHead.y = 0;
                     
-                    for (let i = 1; i < snake.value.length; i++) {
-                        if (checkCollision(newHead, snake.value[i], actualCellSize.value, actualCellSize.value)) {
-                            handleSelfCollision();
-                            return;
-                        }
-                    }
-                    
                     for (const obstacle of obstacles.value) {
                         if (checkCollision(newHead, obstacle, actualCellSize.value, initialCellSize)) {
                             handleObstacleCollision();
@@ -424,21 +406,6 @@
                     if (!ateApple) {
                         snake.value.pop();
                     }
-                }
-
-                function handleSelfCollision() {
-                    savedSnakeState.value = {
-                        snake: [...snake.value],
-                        snakeDiameter: snakeDiameter.value,
-                        currentSpeed: currentSpeed.value,
-                        applesEaten: applesEaten.value,
-                        score: score.value,
-                        obstacles: [...obstacles.value]
-                    };
-                    
-                    blueCorpse.value = [...snake.value];
-                    
-                    spawnRedSnake();
                 }
 
                 function handleObstacleCollision() {
@@ -509,30 +476,30 @@
                     redSnakeDirection.value = { ...redSnakeNextDirection.value };
                     
                     const head = redSnake.value[0];
-                    const newHead = {
+                    let newHead = {
                         x: head.x + redSnakeDirection.value.x * initialCellSize,
                         y: head.y + redSnakeDirection.value.y * initialCellSize
                     };
                     
                     if (newHead.x < 0 || newHead.x >= canvasWidth || 
                         newHead.y < 0 || newHead.y >= canvasHeight) {
-                        gameState.value = 'gameover';
-                        stopRedSnakeTimer();
+                        redSnake.value.unshift(newHead);
+                        redSnake.value.pop();
                         return;
                     }
                     
                     for (let i = 1; i < redSnake.value.length; i++) {
                         if (newHead.x === redSnake.value[i].x && newHead.y === redSnake.value[i].y) {
-                            gameState.value = 'gameover';
-                            stopRedSnakeTimer();
+                            redSnake.value.unshift(newHead);
+                            redSnake.value.pop();
                             return;
                         }
                     }
                     
                     for (const obstacle of obstacles.value) {
                         if (checkCollision(newHead, obstacle, initialCellSize, initialCellSize)) {
-                            gameState.value = 'gameover';
-                            stopRedSnakeTimer();
+                            redSnake.value.unshift(newHead);
+                            redSnake.value.pop();
                             return;
                         }
                     }
@@ -631,6 +598,28 @@
                         ctx.fillRect(segment.x, segment.y, initialCellSize, initialCellSize);
                         ctx.strokeStyle = '#cc2222';
                         ctx.strokeRect(segment.x, segment.y, initialCellSize, initialCellSize);
+                    }
+                    
+                    if (gameState.value === 'redSnake') {
+                        ctx.font = 'bold 20px "Segoe UI", sans-serif';
+                        ctx.textAlign = 'right';
+                        
+                        if (redSnakeTimeLeft.value <= 10) {
+                            ctx.fillStyle = '#ff4444';
+                            ctx.shadowColor = '#ff4444';
+                            ctx.shadowBlur = 10;
+                        } else {
+                            ctx.fillStyle = '#ffaa00';
+                            ctx.shadowColor = '#ffaa00';
+                            ctx.shadowBlur = 5;
+                        }
+                        
+                        ctx.fillText(`救援时间: ${redSnakeTimeLeft.value}s`, canvasWidth - 15, 30);
+                        
+                        ctx.font = '14px "Segoe UI", sans-serif';
+                        ctx.fillStyle = '#888';
+                        ctx.shadowBlur = 0;
+                        ctx.fillText('控制红蛇吃掉蓝色尸体！', canvasWidth - 15, 50);
                     }
                 }
 
