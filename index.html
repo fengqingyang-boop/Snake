@@ -60,6 +60,14 @@
             font-size: 24px;
             font-weight: bold;
         }
+        .info-value.warning {
+            color: #ff6b6b;
+            animation: pulse 0.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
         .controls {
             margin-top: 20px;
             color: #888;
@@ -126,16 +134,10 @@
         <h1>{{ gameTitle }}</h1>
         <div class="game-container">
             <canvas id="gameCanvas" :width="canvasWidth" :height="canvasHeight"></canvas>
-            <div class="game-overlay" v-if="gameState !== 'playing'">
+            <div class="game-overlay" v-if="gameState !== 'playing' && gameState !== 'redSnake'">
                 <div class="overlay-title" v-if="gameState === 'gameover'">游戏结束</div>
                 <div class="overlay-title" v-else-if="gameState === 'paused'">暂停</div>
                 <div class="overlay-title" v-else-if="gameState === 'start'">贪吃蛇</div>
-                <div class="overlay-text" v-if="gameState === 'redSnake'">
-                    控制<span style="color:#ff4444">红色蛇</span>吃掉<span style="color:#4444ff">蓝色尸体</span>！
-                </div>
-                <div class="red-snake-hint" v-if="gameState === 'redSnake'">
-                    按 W A S D 控制方向
-                </div>
                 <div class="overlay-text" v-if="gameState === 'gameover'">
                     最终分数: {{ score }}
                 </div>
@@ -143,6 +145,17 @@
                         @click="startGame">
                     {{ gameState === 'paused' ? '继续游戏' : '开始游戏' }}
                 </button>
+            </div>
+            <div class="game-overlay" v-if="gameState === 'redSnake'" style="pointer-events: none; background-color: rgba(0, 0, 0, 0.5);">
+                <div class="overlay-text" style="color: #ff4444; font-size: 28px; text-shadow: 0 0 10px #ff4444;">
+                    剩余时间: <span :class="{ 'warning': redSnakeTimeLeft <= 10 }">{{ redSnakeTimeLeft }}</span> 秒
+                </div>
+                <div class="overlay-text" style="color: #fff; font-size: 20px;">
+                    控制<span style="color:#ff4444">红色蛇</span>吃掉<span style="color:#4444ff">蓝色尸体</span>！
+                </div>
+                <div class="red-snake-hint">
+                    按 W A S D 控制方向 | 不能吃苹果！
+                </div>
             </div>
         </div>
         
@@ -162,6 +175,10 @@
             <div class="info-item">
                 <div class="info-label">已吃苹果</div>
                 <div class="info-value">{{ applesEaten }}</div>
+            </div>
+            <div class="info-item" v-if="gameState === 'redSnake'">
+                <div class="info-label">救援时间</div>
+                <div class="info-value" :class="{ 'warning': redSnakeTimeLeft <= 10 }">{{ redSnakeTimeLeft }}s</div>
             </div>
         </div>
         
@@ -187,10 +204,12 @@
                 const speedDecrement = 0.2;
                 const maxApples = 5;
                 const growEvery = 3;
+                const redSnakeTimeLimit = 30;
 
                 let canvas = null;
                 let ctx = null;
                 let gameLoop = null;
+                let redSnakeTimer = null;
 
                 const gameTitle = ref('贪吃蛇游戏');
                 const gameState = ref('start');
@@ -208,6 +227,7 @@
                 const redSnake = ref([]);
                 const redSnakeDirection = ref({ x: -1, y: 0 });
                 const redSnakeNextDirection = ref({ x: -1, y: 0 });
+                const redSnakeTimeLeft = ref(redSnakeTimeLimit);
                 
                 const apples = ref([]);
                 const obstacles = ref([]);
@@ -232,6 +252,11 @@
                 }
 
                 function resetGame() {
+                    if (redSnakeTimer) {
+                        clearInterval(redSnakeTimer);
+                        redSnakeTimer = null;
+                    }
+                    
                     snake.value = [];
                     direction.value = { x: 1, y: 0 };
                     nextDirection.value = { x: 1, y: 0 };
@@ -243,6 +268,7 @@
                     obstacles.value = [];
                     blueCorpse.value = [];
                     redSnake.value = [];
+                    redSnakeTimeLeft.value = redSnakeTimeLimit;
                     
                     const startX = Math.floor(canvasWidth / 2 / initialCellSize) * initialCellSize;
                     const startY = Math.floor(canvasHeight / 2 / initialCellSize) * initialCellSize;
@@ -279,6 +305,15 @@
                             if (checkCollision({ x, y }, segment, actualCellSize.value, initialCellSize)) {
                                 collision = true;
                                 break;
+                            }
+                        }
+                        
+                        if (!collision) {
+                            for (const segment of redSnake.value) {
+                                if (checkCollision({ x, y }, segment, initialCellSize, initialCellSize)) {
+                                    collision = true;
+                                    break;
+                                }
                             }
                         }
                         
@@ -401,30 +436,28 @@
                         obstacles: [...obstacles.value]
                     };
                     
-                    const halfLength = Math.floor(snake.value.length / 2);
-                    for (let i = halfLength; i < snake.value.length; i++) {
-                        obstacles.value.push({ ...snake.value[i] });
-                    }
+                    blueCorpse.value = [...snake.value];
                     
-                    snakeDiameter.value = initialSnakeDiameter;
-                    currentSpeed.value = initialSpeed;
-                    
-                    const newLength = Math.max(initialSnakeLength, halfLength);
-                    const head = snake.value[0];
-                    const newSnake = [];
-                    
-                    for (let i = 0; i < newLength; i++) {
-                        newSnake.push({
-                            x: head.x - i * initialCellSize * direction.value.x,
-                            y: head.y - i * initialCellSize * direction.value.y
-                        });
-                    }
-                    
-                    snake.value = newSnake;
+                    spawnRedSnake();
                 }
 
                 function handleObstacleCollision() {
+                    savedSnakeState.value = {
+                        snake: [...snake.value],
+                        snakeDiameter: snakeDiameter.value,
+                        currentSpeed: currentSpeed.value,
+                        applesEaten: applesEaten.value,
+                        score: score.value,
+                        obstacles: [...obstacles.value]
+                    };
+                    
                     blueCorpse.value = [...snake.value];
+                    
+                    spawnRedSnake();
+                }
+
+                function spawnRedSnake() {
+                    snake.value = [];
                     
                     const redStartX = canvasWidth - initialCellSize;
                     const redStartY = 0;
@@ -439,8 +472,37 @@
                     
                     redSnakeDirection.value = { x: -1, y: 0 };
                     redSnakeNextDirection.value = { x: -1, y: 0 };
+                    redSnakeTimeLeft.value = redSnakeTimeLimit;
                     
                     gameState.value = 'redSnake';
+                    
+                    startRedSnakeTimer();
+                }
+
+                function startRedSnakeTimer() {
+                    if (redSnakeTimer) {
+                        clearInterval(redSnakeTimer);
+                    }
+                    
+                    redSnakeTimer = setInterval(() => {
+                        if (gameState.value === 'redSnake') {
+                            redSnakeTimeLeft.value--;
+                            if (redSnakeTimeLeft.value <= 0) {
+                                gameState.value = 'gameover';
+                                stopRedSnakeTimer();
+                                if (gameLoop) {
+                                    clearTimeout(gameLoop);
+                                }
+                            }
+                        }
+                    }, 1000);
+                }
+
+                function stopRedSnakeTimer() {
+                    if (redSnakeTimer) {
+                        clearInterval(redSnakeTimer);
+                        redSnakeTimer = null;
+                    }
                 }
 
                 function moveRedSnake() {
@@ -455,12 +517,22 @@
                     if (newHead.x < 0 || newHead.x >= canvasWidth || 
                         newHead.y < 0 || newHead.y >= canvasHeight) {
                         gameState.value = 'gameover';
+                        stopRedSnakeTimer();
                         return;
                     }
                     
                     for (let i = 1; i < redSnake.value.length; i++) {
                         if (newHead.x === redSnake.value[i].x && newHead.y === redSnake.value[i].y) {
                             gameState.value = 'gameover';
+                            stopRedSnakeTimer();
+                            return;
+                        }
+                    }
+                    
+                    for (const obstacle of obstacles.value) {
+                        if (checkCollision(newHead, obstacle, initialCellSize, initialCellSize)) {
+                            gameState.value = 'gameover';
+                            stopRedSnakeTimer();
                             return;
                         }
                     }
@@ -477,6 +549,8 @@
                 }
 
                 function restoreGame() {
+                    stopRedSnakeTimer();
+                    
                     snake.value = savedSnakeState.value.snake;
                     snakeDiameter.value = savedSnakeState.value.snakeDiameter;
                     currentSpeed.value = savedSnakeState.value.currentSpeed;
@@ -487,6 +561,7 @@
                     nextDirection.value = { x: 1, y: 0 };
                     blueCorpse.value = [];
                     redSnake.value = [];
+                    redSnakeTimeLeft.value = redSnakeTimeLimit;
                     gameState.value = 'playing';
                 }
 
@@ -502,10 +577,11 @@
                     }
                     
                     for (const segment of blueCorpse.value) {
+                        const size = Math.floor(initialCellSize * (savedSnakeState.value.snakeDiameter / initialSnakeDiameter));
                         ctx.fillStyle = '#4444ff';
-                        ctx.fillRect(segment.x, segment.y, initialCellSize, initialCellSize);
+                        ctx.fillRect(segment.x, segment.y, size, size);
                         ctx.strokeStyle = '#2222cc';
-                        ctx.strokeRect(segment.x, segment.y, initialCellSize, initialCellSize);
+                        ctx.strokeRect(segment.x, segment.y, size, size);
                     }
                     
                     for (const apple of apples.value) {
@@ -568,7 +644,7 @@
                     draw();
                     
                     if (gameState.value === 'playing' || gameState.value === 'redSnake') {
-                        const delay = 1000 / currentSpeed.value;
+                        const delay = 1000 / (gameState.value === 'redSnake' ? initialSpeed : currentSpeed.value);
                         gameLoop = setTimeout(gameLoopFunction, delay);
                     }
                 }
@@ -664,6 +740,9 @@
                     if (gameLoop) {
                         clearTimeout(gameLoop);
                     }
+                    if (redSnakeTimer) {
+                        clearInterval(redSnakeTimer);
+                    }
                 });
 
                 return {
@@ -673,6 +752,7 @@
                     snakeDiameter,
                     currentSpeed,
                     applesEaten,
+                    redSnakeTimeLeft,
                     canvasWidth,
                     canvasHeight,
                     startGame
