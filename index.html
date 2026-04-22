@@ -375,7 +375,8 @@
                     if (newHead.y < 0) newHead.y = canvasHeight - actualCellSize.value;
                     if (newHead.y >= canvasHeight) newHead.y = 0;
                     
-                    for (let i = 1; i < snake.value.length; i++) {
+                    const ignoreSegments = Math.floor((actualCellSize.value - 1) / initialCellSize);
+                    for (let i = ignoreSegments + 1; i < snake.value.length; i++) {
                         if (checkCollision(newHead, snake.value[i], actualCellSize.value, actualCellSize.value)) {
                             handleSelfCollision();
                             return;
